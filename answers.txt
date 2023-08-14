@@ -1,0 +1,136 @@
+Hung Long Nguyen
+hunglongn
+1157436
+
+1.
+Whether the server should accept calls from everyone or just a subset of users depends on the specific requirements and security 
+considerations of the application. For example, if it is public for everyone, it should accept everyone; otherwise
+it is has some security and confidential informations they should only accept a subset of users who trust.
+
+2.
+Depend on security requirement of application. However Authentication and related functionality 
+can be provided RPC framework itself to ensure security in communication.
+For example gRPC also add authentication to its framework https://grpc.io/docs/guides/auth/
+
+3.
+TCP is a more reliable and connection-oriented communication transport layer protocol; whereas, UDP is faster but less reliable.
+Therefore, in the RPC context where reliability is more important, TCP should be used.
+
+4.
+The socket(s) should typically be created in the function responsible for initializing such as rpc_init_client for the client code  or rpc_init_server for the server code.
+These functions contain informations required to create the sockets passed in as arguments; therefore, them should be responsile for creating the sockets
+
+5.
+Whether to allocate rpc_client and rpc_server dynamically or statically depends on factors like flexibility, resource management, and code organization.
+Access data in heap(dynamic allocation) allows for more dynamic control but requires explicit memory management(manage the pointer is complicated), 
+while stack(static) simplifies the code but may have limitations in terms of scalability and flexibility.
+
+6.
+If hosts with different byte orders (big-endian vs. little-endian) communicate, it may leads to issues in communications.
+this is because Big-edian represents the most significant byte first; whereas, little-edian represents the least significant byte first. 
+To fix this, they need to define standart network byte order to standardize communications.
+All data that is sent over the network must be converted to network byte order before transmission and converted back to the host byte order after reception. 
+The concept of "network byte order" refers to the standardized byte order (big-endian) used for network communication to ensure interoperability 
+between systems with different native byte orders.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ PROTOCOL ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The protocol operates with as follow: 
+
+The API will send and receive data in a 'rpc_data' structure:
+
+typedef struct {
+int data1;
+size_t data2_len;
+void *data2;
+} rpc_data;
+
+inside that struct we have these variable:
+    - 'data1' is a specific integer input for arguments.
+    - 'data2': a void pointer pointting to additional data/or anyother data other than int.
+    - 'data2_len' indicates the length of 'data2'.
+
+
+The protocol flow between client and server goes as follow:
+
+client side:
+1. Client uses `rpc_client *rpc_init_client(char *addr, int port)` where addr (string) is the desired ip 
+address to connect and port(int) is the port number.
+For example: rpc_client *state = rpc_init_client(::1, 3000).
+the instance of client connecting to server port will be stored into state pointer variable.
+Will return NULL if error occurred.
+
+
+2. Client uses `rpc_handle *rpc_find(rpc_client *cl, char *name)` where cl is the instance of client 
+connection (i.e previously defined *state) and name (string) is the name of the function client would like to find.
+For example: rpc_handle *handle_add2 = rpc_find(state, "add2");
+Here, the index of the the founded function will be stored onto handle_add2.
+if the function client trying to find is not registered or not exist then will return NULL.
+
+
+3. Client uses `rpc_data* rpc_call(rpc_client* cl, rpc_handle* h, rpc_data* params)` where cl is instance of client 
+connection (i.e previously defined *state), h is the index of the found function we obtain previously on rpc_find (i.e handle_add2)
+and params, which is the desired parameters for the function client tries to call.
+For example: rpc_data *response_data = rpc_call(state, handle_add2, &request_data).
+If everything is done correctly it should return the output of the function using the input parameters onto response_data (rpc_data type).
+if not it will return NULL.
+
+3.1. repeat step 2 and 3 until desired.
+
+4. Client uses `void rpc_close_client(rpc_client *cl)` where cl is the instance of client connection (i.e previously defined *state)
+For example: rpc_close_client(state);
+This will close the client connection to the server.
+
+
+Server side:
+1. Server uses `rpc_server *rpc_init_server(int port)` where port is the port number for connection.
+For example: state = rpc_init_server(3000);
+This will open the specified port for connection and store the instance of it onto `state` variable.
+
+
+2. Server uses `void rpc_serve_all(rpc_server *srv)` where *srv is the instance of server.
+For example: rpc_serve_all(state);
+State is the previously obtain instance of server from rpc_init_server function.
+After this, server will be able to accept multiple client request and done them orderly.
+
+
+3. Server uses `int rpc_register(rpc_server *srv, char *name, rpc_handler handler)` 
+where srv is the instance of server, name is the function name desired to be registered as, and last argument is for which actual function/handle should. 
+it evoke if the registered `name` was called.
+For example: rpc_register(state, "add2", add2_i8).
+This will return -1 if it register unsucessfully.
+
+
+shared side:
+function `void rpc_data_free(rpc_data *data)` takes the rpc_data type as an input and free/deallocate everything inside to prevent
+memory leak.
+
+function `int compress_rpc_data(rpc_data* data, char** code)` takes a `rpc_data` struct and compress it into a byte buffer.
+function `void decompress_rpc_data(char *buffer, rpc_data *data)` takes a byte buffer and decodes it into a `rpc_data` struct.
+
+
+Logic behind protocols:
+Client compress the request as rpc_data, Data1 indicate which method predefined handle (RPC_FIND_HANDLE) reserved for rpc_find., and data2 is used to pass the parameters to the function. 
+The client makes two types of function calls to the server: rpc_find or rpc_call
+The client attaches a `rpc_data` struct input data.
+The `compress_rpc_data` function is called to compress the data into a byte buffer.
+The compressed message is sent to the server via network connection.
+
+Server receives the compressed message from client
+The compressed message is then decompressed using `decompress_rpc_data`
+Server check:
+    - if data1 == (RPC_FIND_HANDLE) predefined handle 
+        ->  the server searches for a function based on the requested data and returns function's index if found. If not found, it returns predefined NOT_FOUND_HANDLE.
+    - if data1 == index
+        -> server find the function at that index, if function exists then server calls the function and get the output.
+Server put the output into `rpc_data` struct type setting:
+    - data1 to be 0
+    - data2_len to be the length of output
+    - `data2` to the (pointer type) output.
+The response struct is compressed using `compress_rpc_data` and sent back to the client.
+
+Client receives compressed message from server -> decompress it using decompress_rpc_data and obtain the result
+
+
+
+
+

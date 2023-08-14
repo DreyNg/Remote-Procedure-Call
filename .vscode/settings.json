@@ -1,0 +1,19 @@
+{
+    "files.associations": {
+        "rpc.h": "c",
+        "signal.h": "c",
+        "stddef.h": "c",
+        "string.h": "c",
+        "unistd.h": "c",
+        "netdb.h": "c",
+        "pthread.h": "c",
+        "in.h": "c",
+        "assert.h": "c",
+        "stdio.h": "c",
+        "inet.h": "c",
+        "stdlib.h": "c",
+        "time.h": "c",
+        "types.h": "c",
+        "socket.h": "c"
+    }
+}
